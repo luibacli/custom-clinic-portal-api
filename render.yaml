@@ -41,3 +41,5 @@ services:
         sync: false
       - key: PAYMONGO_WEBHOOK_SECRET
         sync: false
+      - key: SENTRY_DSN
+        sync: false

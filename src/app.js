@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
+const Sentry = require('@sentry/node');
+const logger = require('./utils/logger');
 
 const authTenantRoutes  = require('./routes/authTenant');
 const tenantRoutes      = require('./routes/tenant');
@@ -11,25 +14,33 @@ const emailRoutes       = require('./routes/email');
 const billingRoutes     = require('./routes/billing');
 const errorHandler      = require('./middleware/errorHandler');
 
-const ALLOWED_ORIGINS = [
-  'https://careboard.dev',
-  'https://myclinicaccess.com',
-  'https://www.myclinicaccess.com',
-  'https://staging.myclinicaccess.com',
-  'https://uat.myclinicaccess.com',
-  'https://demo.clinicaccess.com',
-  'https://primawellmc.com',
-  'https://www.primawellmc.com',
-  'https://dongonmc.com',
-  'https://www.dongonmc.com',
-  'http://localhost:5173',
-  'http://localhost:5174',
-];
+const WILDCARD_ORIGIN = /^https:\/\/([a-z0-9-]+\.)?myclinicaccess\.com$/;
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // non-browser / server-to-server
+    if (
+      origin === 'http://localhost:5173' ||
+      origin === 'http://localhost:5174' ||
+      WILDCARD_ORIGIN.test(origin)
+    ) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
 
 const app = express();
 
+// Request logging (skip health checks to reduce noise)
+app.use(pinoHttp({
+  logger,
+  autoLogging: { ignore: (req) => req.url === '/health' },
+}));
+
 // CORS
-app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+app.use(cors(corsOptions));
 
 // Rate limiting — global: 300 req/15 min per IP
 app.use(rateLimit({
@@ -65,6 +76,11 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/services',      serviceRoutes);
 app.use('/api/email',         emailRoutes);
 app.use('/api/billing',       billingRoutes);
+
+// Sentry error handler (must come before custom errorHandler)
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // Centralized error handler
 app.use(errorHandler);

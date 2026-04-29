@@ -1,0 +1,36 @@
+const mongoose = require('mongoose');
+
+const tenantSchema = new mongoose.Schema({
+  name:   { type: String, required: true },
+  domain: { type: String, required: true },
+  status: {
+    type: String,
+    enum: ['active', 'inactive'],
+    default: 'active',
+  },
+  tenantLogo: {
+    url:      { type: String, default: '' },
+    publicId: { type: String, default: '' },
+  },
+  features: {
+    messaging:     { type: Boolean, default: true  },
+    appointments:  { type: Boolean, default: true  },
+    qrScan:        { type: Boolean, default: true  },
+    mails:         { type: Boolean, default: true  },
+    users:         { type: Boolean, default: true  },
+    analytics:     { type: Boolean, default: false },
+    exportReports: { type: Boolean, default: false },
+    smsReminders:  { type: Boolean, default: false },
+  },
+  branding: {
+    primaryColor:   { type: String, default: '#2563eb' },
+    address:        { type: String, default: '' },
+    phone:          { type: String, default: '' },
+    email:          { type: String, default: '' },
+    welcomeMessage: { type: String, default: '' },
+  },
+}, { timestamps: true });
+
+tenantSchema.index({ domain: 1 }, { unique: true });
+
+module.exports = mongoose.model('Tenant', tenantSchema);

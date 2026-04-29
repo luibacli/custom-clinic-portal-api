@@ -23,20 +23,20 @@ const {
 } = require('../controllers/authTenantController');
 
 router.post('/login',               tenantLogin);
-router.post('/create',              createUserTenant);
+router.post('/create',              auth(['dev', 'admin', 'superadmin']), createUserTenant);
 router.post('/forgot-password',     forgotPassword);
 router.post('/reset-password',      resetPassword);
 router.post('/resend-verification', resendVerification);
 router.get('/verify-email',         verifyEmail);
-router.get('/me',                   auth(), fetchUser);
-router.get('/users/all',            auth(), fetchAllUsers);
-router.get('/:id/users',            auth(), fetchUsersByTenant);
-router.get('/:id/activity-logs',    auth(), fetchTenantActivityLogs);
-router.put('/:id/user/update',      auth(), updateUserTenant);
-router.patch('/change-password',    auth(), changePassword);
-router.patch('/:id/photo',          uploadCloudinary.single('image'), uploadUserPhoto);
-router.patch('/:id/toggle-status',  auth(), toggleUserStatus);
-router.delete('/:id/delete',        auth(), deleteUserTenant);
+router.get('/me',                   auth(),                               fetchUser);
+router.get('/users/all',            auth(['dev']),                        fetchAllUsers);
+router.get('/:id/users',            auth(['dev', 'admin', 'superadmin']), fetchUsersByTenant);
+router.get('/:id/activity-logs',    auth(['dev', 'superadmin']),          fetchTenantActivityLogs);
+router.put('/:id/user/update',      auth(['dev', 'admin', 'superadmin']), updateUserTenant);
+router.patch('/change-password',    auth(),                               changePassword);
+router.patch('/:id/photo',          auth(),                               uploadCloudinary.single('image'), uploadUserPhoto);
+router.patch('/:id/toggle-status',  auth(['dev', 'admin', 'superadmin']), toggleUserStatus);
+router.delete('/:id/delete',        auth(['dev', 'superadmin']),          deleteUserTenant);
 
 // PDPA compliance
 router.get('/:id/export',           auth(), exportPatientData);

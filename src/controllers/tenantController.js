@@ -14,6 +14,9 @@ const DEFAULT_SERVICES = [
   'Prescription Renewal', 'Vaccination', 'Medical Certificate', 'Others',
 ];
 
+const ALLOWED_PLANS        = ['starter', 'growth', 'premium'];
+const ALLOWED_SUB_STATUSES = ['trial', 'active', 'past_due', 'suspended', 'cancelled'];
+
 /**
  * Public self-service clinic signup.
  * Creates tenant + superadmin + seeds services in one atomic flow.
@@ -169,8 +172,25 @@ const fetchTenant = async (req, res) => {
 
 const createTenant = async (req, res) => {
   try {
-    const { name, domain, status } = req.body;
-    const tenant = await Tenant.create({ name, domain, status });
+    const { name, domain, status, plan, subscriptionStatus } = req.body;
+    if (!name || !domain) {
+      return res.status(400).json({ success: false, message: 'Name and domain are required.' });
+    }
+    const existing = await Tenant.findOne({ domain: domain.toLowerCase().trim() });
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'This domain is already registered.' });
+    }
+    const doc = {
+      name,
+      domain: domain.toLowerCase().trim(),
+      status: status || 'active',
+      subscription: {
+        plan:   ALLOWED_PLANS.includes(plan) ? plan : 'starter',
+        status: ALLOWED_SUB_STATUSES.includes(subscriptionStatus) ? subscriptionStatus : 'trial',
+        trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    };
+    const tenant = await Tenant.create(doc);
     res.status(201).json({ success: true, data: tenant, message: 'Tenant Created Successfully' });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -275,6 +295,32 @@ const updateTenantFeatures = async (req, res) => {
   }
 };
 
+const updateSubscription = async (req, res) => {
+  try {
+    const { plan, status, trialEndsAt, currentPeriodEnd } = req.body;
+
+    if (plan && !ALLOWED_PLANS.includes(plan)) {
+      return res.status(400).json({ message: `Invalid plan. Must be one of: ${ALLOWED_PLANS.join(', ')}` });
+    }
+    if (status && !ALLOWED_SUB_STATUSES.includes(status)) {
+      return res.status(400).json({ message: `Invalid status. Must be one of: ${ALLOWED_SUB_STATUSES.join(', ')}` });
+    }
+
+    const update = {};
+    if (plan)             update['subscription.plan']             = plan;
+    if (status)           update['subscription.status']           = status;
+    if (trialEndsAt)      update['subscription.trialEndsAt']      = new Date(trialEndsAt);
+    if (currentPeriodEnd) update['subscription.currentPeriodEnd'] = new Date(currentPeriodEnd);
+
+    const updated = await Tenant.findByIdAndUpdate(req.params.id, { $set: update }, { new: true });
+    if (!updated) return res.status(404).json({ message: 'Tenant not found' });
+
+    res.status(200).json({ success: true, data: updated.subscription, message: 'Subscription updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   registerClinic,
   resolveTenantByHost,
@@ -286,4 +332,5 @@ module.exports = {
   deleteTenant,
   updateTenantBranding,
   updateTenantFeatures,
+  updateSubscription,
 };

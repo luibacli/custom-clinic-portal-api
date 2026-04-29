@@ -8,6 +8,7 @@ const appointmentRoutes = require('./routes/appointments');
 const conversationRoutes= require('./routes/conversations');
 const serviceRoutes     = require('./routes/services');
 const emailRoutes       = require('./routes/email');
+const billingRoutes     = require('./routes/billing');
 const errorHandler      = require('./middleware/errorHandler');
 
 const ALLOWED_ORIGINS = [
@@ -53,6 +54,9 @@ app.use(express.urlencoded({ extended: true }));
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'custom-clinic-portal-api' }));
 
+// Billing webhook needs raw body — mount before json() body parser runs on it
+app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
+
 // Routes
 app.use('/api/auth-tenant',   authLimiter, authTenantRoutes);
 app.use('/api/tenants',       tenantRoutes);
@@ -60,6 +64,7 @@ app.use('/api/appointments',  appointmentRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/services',      serviceRoutes);
 app.use('/api/email',         emailRoutes);
+app.use('/api/billing',       billingRoutes);
 
 // Centralized error handler
 app.use(errorHandler);

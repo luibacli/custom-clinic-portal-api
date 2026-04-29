@@ -29,6 +29,22 @@ const tenantSchema = new mongoose.Schema({
     email:          { type: String, default: '' },
     welcomeMessage: { type: String, default: '' },
   },
+  subscription: {
+    plan: {
+      type:    String,
+      enum:    ['starter', 'growth', 'premium'],
+      default: 'starter',
+    },
+    status: {
+      type:    String,
+      enum:    ['trial', 'active', 'past_due', 'suspended', 'cancelled'],
+      default: 'trial',
+    },
+    trialEndsAt:      { type: Date, default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
+    currentPeriodEnd: { type: Date, default: null },
+    paymongoPaymentId:   { type: String, default: '' },
+    paymongoCustomerId:  { type: String, default: '' },
+  },
 }, { timestamps: true });
 
 tenantSchema.index({ domain: 1 }, { unique: true });

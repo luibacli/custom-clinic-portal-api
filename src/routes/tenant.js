@@ -3,6 +3,7 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const uploadCloudinary = require('../middleware/uploadCloudinary');
 const {
+  registerClinic,
   resolveTenantByHost,
   fetchAllTenants,
   fetchTenant,
@@ -14,6 +15,8 @@ const {
   updateTenantFeatures,
 } = require('../controllers/tenantController');
 
+// Public — self-service clinic registration
+router.post('/register',       registerClinic);
 router.get('/resolve',         resolveTenantByHost);
 router.get('/',                auth(['dev', 'superadmin']), fetchAllTenants);
 router.get('/:id',             auth(), fetchTenant);

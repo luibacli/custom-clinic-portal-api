@@ -7,6 +7,7 @@ const Tenant = require('../models/Tenant');
 const TenantActivityLogs = require('../models/TenantActivityLogs');
 const uploadToCloudinary = require('../utils/uploadToCloudinary');
 const sendEmail = require('../utils/sendEmail');
+const { canAddPatient, canAddStaff } = require('../utils/enforcePlanLimits');
 
 const createUserTenant = async (req, res) => {
   try {
@@ -19,6 +20,16 @@ const createUserTenant = async (req, res) => {
     if (existingUser) return res.status(400).json({ message: 'Email Already Exists' });
 
     if (!password) return res.status(400).json({ message: 'Password is required' });
+
+    // Enforce plan limits
+    if (role === 'patient') {
+      const check = await canAddPatient(tenantId);
+      if (!check.allowed) return res.status(403).json({ success: false, message: check.message });
+    } else if (['admin', 'superadmin'].includes(role)) {
+      const check = await canAddStaff(tenantId);
+      if (!check.allowed) return res.status(403).json({ success: false, message: check.message });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const rawVerifyToken = crypto.randomBytes(32).toString('hex');
@@ -143,7 +154,11 @@ const tenantLogin = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid email or password' });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    const token = jwt.sign(
+      { id: user._id, role: user.role, tenantId: user.tenantId },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
 
     await TenantActivityLogs.create({
       tenantId:     user.tenantId,

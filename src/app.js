@@ -12,6 +12,7 @@ const conversationRoutes= require('./routes/conversations');
 const serviceRoutes     = require('./routes/services');
 const emailRoutes       = require('./routes/email');
 const billingRoutes     = require('./routes/billing');
+const analyticsRoutes   = require('./routes/analytics');
 const errorHandler      = require('./middleware/errorHandler');
 
 const WILDCARD_ORIGIN = /^https:\/\/([a-z0-9-]+\.)?myclinicaccess\.com$/;
@@ -66,16 +67,17 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'custom-clinic-portal-api' }));
 
 // Billing webhook needs raw body — mount before json() body parser runs on it
-app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }));
 
-// Routes
-app.use('/api/auth-tenant',   authLimiter, authTenantRoutes);
-app.use('/api/tenants',       tenantRoutes);
-app.use('/api/appointments',  appointmentRoutes);
-app.use('/api/conversations', conversationRoutes);
-app.use('/api/services',      serviceRoutes);
-app.use('/api/email',         emailRoutes);
-app.use('/api/billing',       billingRoutes);
+// Routes — all under /api/v1/
+app.use('/api/v1/auth-tenant',   authLimiter, authTenantRoutes);
+app.use('/api/v1/tenants',       tenantRoutes);
+app.use('/api/v1/appointments',  appointmentRoutes);
+app.use('/api/v1/conversations', conversationRoutes);
+app.use('/api/v1/services',      serviceRoutes);
+app.use('/api/v1/email',         emailRoutes);
+app.use('/api/v1/billing',       billingRoutes);
+app.use('/api/v1/analytics',     analyticsRoutes);
 
 // Sentry error handler (must come before custom errorHandler)
 if (process.env.SENTRY_DSN) {

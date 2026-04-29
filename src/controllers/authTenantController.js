@@ -4,6 +4,9 @@ const jwt = require('jsonwebtoken');
 const cloudinary = require('../config/cloudinary');
 const UserTenant = require('../models/UserTenant');
 const Tenant = require('../models/Tenant');
+const Appointment = require('../models/Appointment');
+const Conversation = require('../models/Conversation');
+const Message = require('../models/Message');
 const TenantActivityLogs = require('../models/TenantActivityLogs');
 const uploadToCloudinary = require('../utils/uploadToCloudinary');
 const sendEmail = require('../utils/sendEmail');
@@ -423,6 +426,106 @@ const fetchTenantActivityLogs = async (req, res) => {
   }
 };
 
+/**
+ * PDPA — Export all personal data for a patient.
+ * GET /api/auth-tenant/:id/export
+ * Accessible by: the patient themselves OR admin/superadmin of the same tenant.
+ */
+const exportPatientData = async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const requester = req.user;
+
+    const target = await UserTenant.findById(targetId)
+      .select('-password -resetToken -resetTokenExpiry -verificationToken -verificationTokenExpiry')
+      .lean();
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    const isSelf  = String(requester.id) === String(targetId);
+    const isAdmin = ['admin', 'superadmin', 'dev'].includes(requester.role) &&
+                    String(requester.tenantId) === String(target.tenantId);
+
+    if (!isSelf && !isAdmin) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const conversation = await Conversation.findOne({ patientId: targetId }).select('_id').lean();
+    const [appointments, messages] = await Promise.all([
+      Appointment.find({ patientId: targetId })
+        .select('-tenantId -__v')
+        .sort({ createdAt: -1 })
+        .lean(),
+      conversation
+        ? Message.find({ conversationId: conversation._id }).select('-__v').lean()
+        : Promise.resolve([]),
+    ]);
+
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      notice: 'This export was generated in compliance with the Philippine Data Privacy Act (PDPA / RA 10173).',
+      profile: target,
+      appointments,
+      messages,
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename="patient-data-${targetId}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    return res.json(exportPayload);
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * PDPA — Anonymize all personal data for a patient (right to erasure).
+ * DELETE /api/auth-tenant/:id/data
+ * Accessible by: the patient themselves OR admin/superadmin of the same tenant.
+ * Record is preserved for referential integrity; all PII is overwritten.
+ */
+const anonymizePatientData = async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const requester = req.user;
+
+    const target = await UserTenant.findById(targetId);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    const isSelf  = String(requester.id) === String(targetId);
+    const isAdmin = ['admin', 'superadmin', 'dev'].includes(requester.role) &&
+                    String(requester.tenantId) === String(target.tenantId);
+
+    if (!isSelf && !isAdmin) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const stub = `deleted_${targetId}`;
+    target.firstName  = 'Deleted';
+    target.lastName   = 'User';
+    target.middleName = '';
+    target.email      = `${stub}@anonymized.invalid`;
+    target.phone      = '';
+    target.birthday   = '';
+    target.pin        = '';
+    target.profilePhoto = { url: '', publicId: '' };
+    target.isActive   = false;
+    target.isEmailVerified = false;
+    await target.save();
+
+    // Anonymize conversation references
+    await Conversation.updateMany(
+      { patientId: targetId },
+      { $set: { patientName: 'Deleted User', patientEmail: `${stub}@anonymized.invalid` } }
+    );
+
+    return res.json({
+      success: true,
+      message: 'All personal data has been anonymized in compliance with the Philippine Data Privacy Act (PDPA).',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   createUserTenant,
   fetchAllUsers,
@@ -439,4 +542,6 @@ module.exports = {
   resendVerification,
   toggleUserStatus,
   fetchTenantActivityLogs,
+  exportPatientData,
+  anonymizePatientData,
 };

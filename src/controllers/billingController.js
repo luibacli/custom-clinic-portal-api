@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Tenant = require('../models/Tenant');
+const UserTenant = require('../models/UserTenant');
 const PLANS  = require('../config/plans');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
@@ -159,14 +160,16 @@ const getSubscriptionStatus = async (req, res) => {
     const tenantId = req.user?.tenantId;
     if (!tenantId) return res.status(400).json({ success: false, message: 'No tenant context' });
 
-    const tenant = await Tenant.findById(tenantId)
-      .select('subscription name domain')
-      .lean();
+    const [tenant, patientCount, staffCount] = await Promise.all([
+      Tenant.findById(tenantId).select('subscription name domain').lean(),
+      UserTenant.countDocuments({ tenantId, role: 'patient' }),
+      UserTenant.countDocuments({ tenantId, role: { $in: ['admin', 'superadmin'] } }),
+    ]);
 
     if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
 
-    const sub   = tenant.subscription || {};
-    const plan  = sub.plan || 'starter';
+    const sub    = tenant.subscription || {};
+    const plan   = sub.plan || 'starter';
     const limits = {
       patientLimit: PLANS[plan]?.patientLimit ?? 500,
       userLimit:    PLANS[plan]?.userLimit    ?? 2,
@@ -175,11 +178,12 @@ const getSubscriptionStatus = async (req, res) => {
     return res.json({
       success: true,
       data: {
-        plan:             plan,
+        plan,
         status:           sub.status || 'trial',
         trialEndsAt:      sub.trialEndsAt || null,
         currentPeriodEnd: sub.currentPeriodEnd || null,
         limits,
+        usage: { patients: patientCount, staff: staffCount },
       },
     });
   } catch (error) {

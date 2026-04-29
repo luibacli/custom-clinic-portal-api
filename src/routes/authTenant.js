@@ -18,6 +18,8 @@ const {
   resendVerification,
   toggleUserStatus,
   fetchTenantActivityLogs,
+  exportPatientData,
+  anonymizePatientData,
 } = require('../controllers/authTenantController');
 
 router.post('/login',               tenantLogin);
@@ -35,5 +37,9 @@ router.patch('/change-password',    auth(), changePassword);
 router.patch('/:id/photo',          uploadCloudinary.single('image'), uploadUserPhoto);
 router.patch('/:id/toggle-status',  auth(), toggleUserStatus);
 router.delete('/:id/delete',        auth(), deleteUserTenant);
+
+// PDPA compliance
+router.get('/:id/export',           auth(), exportPatientData);
+router.delete('/:id/data',          auth(), anonymizePatientData);
 
 module.exports = router;

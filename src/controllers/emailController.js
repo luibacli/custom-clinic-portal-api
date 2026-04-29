@@ -41,11 +41,24 @@ const receiveEmail = async (req, res) => {
   }
 };
 
-const fetchInbox = async (_req, res) => {
+const fetchInbox = async (req, res) => {
   try {
-    const emails = await InboundEmail.find().sort({ date: -1 });
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const skip  = (page - 1) * limit;
+
+    const [total, emails] = await Promise.all([
+      InboundEmail.countDocuments(),
+      InboundEmail.find()
+        .sort({ date: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('-raw')
+        .lean(),
+    ]);
+
     if (!emails.length) return res.status(404).json({ message: 'No messages found' });
-    res.status(200).json(emails);
+    res.status(200).json({ success: true, data: emails, total, page, pages: Math.ceil(total / limit) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

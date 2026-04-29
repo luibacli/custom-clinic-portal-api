@@ -15,7 +15,7 @@ const UserTenantSchema = new mongoose.Schema({
   phone:      { type: String },
   password: {
     type: String,
-    default: 'Yakap2026!',
+    required: true,
   },
   role: {
     type: String,

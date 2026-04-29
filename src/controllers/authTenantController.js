@@ -18,8 +18,8 @@ const createUserTenant = async (req, res) => {
     const existingUser = await UserTenant.findOne({ email });
     if (existingUser) return res.status(400).json({ message: 'Email Already Exists' });
 
-    const finalPassword = password || 'Yakap2026!';
-    const hashedPassword = await bcrypt.hash(finalPassword, 10);
+    if (!password) return res.status(400).json({ message: 'Password is required' });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const rawVerifyToken = crypto.randomBytes(32).toString('hex');
     const hashedVerifyToken = crypto.createHash('sha256').update(rawVerifyToken).digest('hex');

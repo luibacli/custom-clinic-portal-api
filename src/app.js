@@ -14,6 +14,7 @@ const emailRoutes       = require('./routes/email');
 const billingRoutes     = require('./routes/billing');
 const analyticsRoutes   = require('./routes/analytics');
 const errorHandler      = require('./middleware/errorHandler');
+const authRateLimiter   = require('./middleware/authRateLimiter');
 
 const WILDCARD_ORIGIN = /^https:\/\/([a-z0-9-]+\.)?myclinicaccess\.com$/;
 
@@ -52,13 +53,6 @@ app.use(rateLimit({
   message: { success: false, message: 'Too many requests, please try again later.' },
 }));
 
-// Tighter rate limiting for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  message: { success: false, message: 'Too many login attempts, please try again later.' },
-});
-
 // Body parsers
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -70,7 +64,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'custom-clin
 app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }));
 
 // Routes — all under /api/v1/
-app.use('/api/v1/auth-tenant',   authLimiter, authTenantRoutes);
+app.use('/api/v1/auth-tenant',   authRateLimiter, authTenantRoutes);
 app.use('/api/v1/tenants',       tenantRoutes);
 app.use('/api/v1/appointments',  appointmentRoutes);
 app.use('/api/v1/conversations', conversationRoutes);

@@ -14,7 +14,9 @@ const { canAddPatient, canAddStaff } = require('../utils/enforcePlanLimits');
 
 const createUserTenant = async (req, res) => {
   try {
-    const { tenantId, pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    const { pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    // Non-dev callers are always scoped to their own tenant
+    const tenantId = req.user.role === 'dev' ? req.body.tenantId : req.user.tenantId;
 
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) return res.status(404).json({ message: 'Tenant Not Found' });
@@ -106,6 +108,11 @@ const fetchAllUsers = async (req, res) => {
 const fetchUsersByTenant = async (req, res) => {
   try {
     const tenantId = req.params.id;
+
+    if (req.user.role !== 'dev' && req.user.tenantId?.toString() !== tenantId) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
     const { search } = req.query;
 
     const query = { tenantId };
@@ -189,9 +196,29 @@ const fetchUser = async (req, res) => {
 
 const updateUserTenant = async (req, res) => {
   try {
-    const { tenantId, pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    const { pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
 
-    const update = { tenantId, pin, email, firstName, middleName, lastName, birthday, phone, role };
+    const target = await UserTenant.findById(req.params.id).select('tenantId role').lean();
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    if (req.user.role !== 'dev' && target.tenantId?.toString() !== req.user.tenantId?.toString()) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    // Prevent privilege escalation — enforce role transition rules
+    let safeRole = target.role;
+    if (role !== undefined) {
+      const caller = req.user.role;
+      if (caller === 'dev') {
+        safeRole = role;
+      } else if (caller === 'superadmin' && ['patient', 'admin', 'superadmin'].includes(role)) {
+        safeRole = role;
+      } else if (caller === 'admin' && role === 'patient') {
+        safeRole = role;
+      }
+    }
+
+    const update = { pin, email, firstName, middleName, lastName, birthday, phone, role: safeRole };
     if (password) update.password = await bcrypt.hash(password, 10);
 
     const updated = await UserTenant.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true }).select('-password');
@@ -397,6 +424,10 @@ const toggleUserStatus = async (req, res) => {
     const user = await UserTenant.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    if (req.user.role !== 'dev' && user.tenantId?.toString() !== req.user.tenantId?.toString()) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
     user.isActive = !user.isActive;
     await user.save();
 
@@ -412,6 +443,10 @@ const toggleUserStatus = async (req, res) => {
 
 const fetchTenantActivityLogs = async (req, res) => {
   try {
+    if (req.user.role !== 'dev' && req.user.tenantId?.toString() !== req.params.id) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
     const logs = await TenantActivityLogs.find({ tenantId: req.params.id })

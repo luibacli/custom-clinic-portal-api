@@ -15,6 +15,10 @@ const getTenantAnalytics = async (req, res) => {
 
     const { tenantId } = req.params;
 
+    if (admin.tenantId?.toString() !== tenantId) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);

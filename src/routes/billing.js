@@ -11,9 +11,9 @@ const {
 // Webhook must use raw body — registered before json() middleware in app.js
 router.post('/webhook', express.raw({ type: 'application/json' }), handleWebhook);
 
-// Tenant-facing
-router.post('/checkout', auth(), createCheckout);
-router.get('/status',    auth(), getSubscriptionStatus);
+// Tenant-facing — superadmin initiates billing; admin/superadmin can view status
+router.post('/checkout', auth(['superadmin']),             createCheckout);
+router.get('/status',    auth(['admin', 'superadmin']),    getSubscriptionStatus);
 
 // Dev/internal only
 router.patch('/set-plan', auth(['dev']), setPlan);

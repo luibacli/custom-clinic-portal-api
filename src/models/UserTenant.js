@@ -29,6 +29,8 @@ const UserTenantSchema = new mongoose.Schema({
   },
   isActive:       { type: Boolean, default: true },
   isEmailVerified:{ type: Boolean, default: false },
+  // 'self' = patient clicked email link; 'clinic' = staff verified in person
+  verificationMethod: { type: String, enum: ['self', 'clinic'], default: 'self' },
   verificationToken:       { type: String, default: null },
   verificationTokenExpiry: { type: Date,   default: null },
   resetToken:       { type: String, default: null },

@@ -164,6 +164,20 @@ const tenantLogin = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid email or password' });
 
+    if (!user.isActive) {
+      return res.status(403).json({
+        message: 'Your account has been deactivated. Please contact your clinic.',
+        code: 'ACCOUNT_DEACTIVATED',
+      });
+    }
+
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        message: 'Your account is not yet verified. Please verify your email or ask clinic staff to verify your account.',
+        code: 'EMAIL_NOT_VERIFIED',
+      });
+    }
+
     const token = jwt.sign(
       { id: user._id, role: user.role, tenantId: user.tenantId },
       process.env.JWT_SECRET,
@@ -561,6 +575,40 @@ const anonymizePatientData = async (req, res) => {
   }
 };
 
+/**
+ * Dual Verification — Path A: Clinic-managed verification.
+ * Used when a patient has no personal email — clinic staff verifies identity in person.
+ * PATCH /api/auth-tenant/:id/clinic-verify
+ * Accessible by: admin, superadmin, dev of the same tenant.
+ */
+const clinicVerifyPatient = async (req, res) => {
+  try {
+    const target = await UserTenant.findById(req.params.id);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    if (req.user.role !== 'dev' && target.tenantId?.toString() !== req.user.tenantId?.toString()) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    if (target.role !== 'patient') {
+      return res.status(400).json({ message: 'Only patient accounts can be clinic-verified.' });
+    }
+
+    target.isEmailVerified = true;
+    target.verificationMethod = 'clinic';
+    target.verificationToken = null;
+    target.verificationTokenExpiry = null;
+    await target.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Patient account verified by clinic staff.',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   createUserTenant,
   fetchAllUsers,
@@ -579,4 +627,5 @@ module.exports = {
   fetchTenantActivityLogs,
   exportPatientData,
   anonymizePatientData,
+  clinicVerifyPatient,
 };

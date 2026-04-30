@@ -20,6 +20,7 @@ const {
   fetchTenantActivityLogs,
   exportPatientData,
   anonymizePatientData,
+  clinicVerifyPatient,
 } = require('../controllers/authTenantController');
 
 router.post('/login',               tenantLogin);
@@ -37,6 +38,9 @@ router.patch('/change-password',    auth(),                               change
 router.patch('/:id/photo',          auth(),                               uploadCloudinary.single('image'), uploadUserPhoto);
 router.patch('/:id/toggle-status',  auth(['dev', 'admin', 'superadmin']), toggleUserStatus);
 router.delete('/:id/delete',        auth(['dev', 'superadmin']),          deleteUserTenant);
+
+// Dual verification — Path A: clinic staff verifies patient in person
+router.patch('/:id/clinic-verify',  auth(['admin', 'superadmin', 'dev']), clinicVerifyPatient);
 
 // PDPA compliance
 router.get('/:id/export',           auth(), exportPatientData);

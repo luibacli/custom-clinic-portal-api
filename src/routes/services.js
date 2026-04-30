@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const auth                = require('../middleware/auth');
+const requireSubscription = require('../middleware/requireSubscription');
 const {
   getServices,
   createService,
@@ -9,10 +10,12 @@ const {
   seedDefaultServices,
 } = require('../controllers/serviceController');
 
-router.get('/:tenantId',           auth(), getServices);
-router.post('/:tenantId',          auth(), createService);
-router.post('/:tenantId/seed',     auth(), seedDefaultServices);
-router.patch('/:id',               auth(), updateService);
-router.delete('/:id',              auth(), deleteService);
+const gate = [auth(), requireSubscription];
+
+router.get('/:tenantId',           ...gate, getServices);
+router.post('/:tenantId',          ...gate, createService);
+router.post('/:tenantId/seed',     ...gate, seedDefaultServices);
+router.patch('/:id',               ...gate, updateService);
+router.delete('/:id',              ...gate, deleteService);
 
 module.exports = router;

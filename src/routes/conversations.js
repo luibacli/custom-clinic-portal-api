@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const auth                = require('../middleware/auth');
+const requireSubscription = require('../middleware/requireSubscription');
 const {
   initConversation,
   fetchMyConversation,
@@ -10,11 +11,13 @@ const {
   markConversationRead,
 } = require('../controllers/conversationController');
 
-router.post('/',                       auth(), initConversation);
-router.get('/my',                      auth(), fetchMyConversation);
-router.get('/:tenantId/all',           auth(), fetchAllConversations);
-router.get('/:id/messages',            auth(), fetchMessages);
-router.post('/:id/messages',           auth(), sendMessage);
-router.patch('/:id/read',              auth(), markConversationRead);
+const gate = [auth(), requireSubscription];
+
+router.post('/',                       ...gate, initConversation);
+router.get('/my',                      ...gate, fetchMyConversation);
+router.get('/:tenantId/all',           ...gate, fetchAllConversations);
+router.get('/:id/messages',            ...gate, fetchMessages);
+router.post('/:id/messages',           ...gate, sendMessage);
+router.patch('/:id/read',              ...gate, markConversationRead);
 
 module.exports = router;

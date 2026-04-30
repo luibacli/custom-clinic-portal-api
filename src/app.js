@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
+const Sentry = require('@sentry/node');
+const logger = require('./utils/logger');
 
 const authTenantRoutes  = require('./routes/authTenant');
 const tenantRoutes      = require('./routes/tenant');
@@ -8,27 +11,38 @@ const appointmentRoutes = require('./routes/appointments');
 const conversationRoutes= require('./routes/conversations');
 const serviceRoutes     = require('./routes/services');
 const emailRoutes       = require('./routes/email');
+const billingRoutes     = require('./routes/billing');
+const analyticsRoutes   = require('./routes/analytics');
 const errorHandler      = require('./middleware/errorHandler');
+const authRateLimiter   = require('./middleware/authRateLimiter');
 
-const ALLOWED_ORIGINS = [
-  'https://careboard.dev',
-  'https://myclinicaccess.com',
-  'https://www.myclinicaccess.com',
-  'https://staging.myclinicaccess.com',
-  'https://uat.myclinicaccess.com',
-  'https://demo.clinicaccess.com',
-  'https://primawellmc.com',
-  'https://www.primawellmc.com',
-  'https://dongonmc.com',
-  'https://www.dongonmc.com',
-  'http://localhost:5173',
-  'http://localhost:5174',
-];
+const WILDCARD_ORIGIN = /^https:\/\/([a-z0-9-]+\.)?myclinicaccess\.com$/;
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // non-browser / server-to-server
+    if (
+      origin === 'http://localhost:5173' ||
+      origin === 'http://localhost:5174' ||
+      WILDCARD_ORIGIN.test(origin)
+    ) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
 
 const app = express();
 
+// Request logging (skip health checks to reduce noise)
+app.use(pinoHttp({
+  logger,
+  autoLogging: { ignore: (req) => req.url === '/health' },
+}));
+
 // CORS
-app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+app.use(cors(corsOptions));
 
 // Rate limiting — global: 300 req/15 min per IP
 app.use(rateLimit({
@@ -39,13 +53,6 @@ app.use(rateLimit({
   message: { success: false, message: 'Too many requests, please try again later.' },
 }));
 
-// Tighter rate limiting for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  message: { success: false, message: 'Too many login attempts, please try again later.' },
-});
-
 // Body parsers
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -53,13 +60,23 @@ app.use(express.urlencoded({ extended: true }));
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'custom-clinic-portal-api' }));
 
-// Routes
-app.use('/api/auth-tenant',   authLimiter, authTenantRoutes);
-app.use('/api/tenants',       tenantRoutes);
-app.use('/api/appointments',  appointmentRoutes);
-app.use('/api/conversations', conversationRoutes);
-app.use('/api/services',      serviceRoutes);
-app.use('/api/email',         emailRoutes);
+// Billing webhook needs raw body — mount before json() body parser runs on it
+app.use('/api/v1/billing/webhook', express.raw({ type: 'application/json' }));
+
+// Routes — all under /api/v1/
+app.use('/api/v1/auth-tenant',   authRateLimiter, authTenantRoutes);
+app.use('/api/v1/tenants',       tenantRoutes);
+app.use('/api/v1/appointments',  appointmentRoutes);
+app.use('/api/v1/conversations', conversationRoutes);
+app.use('/api/v1/services',      serviceRoutes);
+app.use('/api/v1/email',         emailRoutes);
+app.use('/api/v1/billing',       billingRoutes);
+app.use('/api/v1/analytics',     analyticsRoutes);
+
+// Sentry error handler (must come before custom errorHandler)
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // Centralized error handler
 app.use(errorHandler);

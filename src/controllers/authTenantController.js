@@ -4,13 +4,19 @@ const jwt = require('jsonwebtoken');
 const cloudinary = require('../config/cloudinary');
 const UserTenant = require('../models/UserTenant');
 const Tenant = require('../models/Tenant');
+const Appointment = require('../models/Appointment');
+const Conversation = require('../models/Conversation');
+const Message = require('../models/Message');
 const TenantActivityLogs = require('../models/TenantActivityLogs');
 const uploadToCloudinary = require('../utils/uploadToCloudinary');
 const sendEmail = require('../utils/sendEmail');
+const { canAddPatient, canAddStaff } = require('../utils/enforcePlanLimits');
 
 const createUserTenant = async (req, res) => {
   try {
-    const { tenantId, pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    const { pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    // Non-dev callers are always scoped to their own tenant
+    const tenantId = req.user.role === 'dev' ? req.body.tenantId : req.user.tenantId;
 
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) return res.status(404).json({ message: 'Tenant Not Found' });
@@ -19,6 +25,16 @@ const createUserTenant = async (req, res) => {
     if (existingUser) return res.status(400).json({ message: 'Email Already Exists' });
 
     if (!password) return res.status(400).json({ message: 'Password is required' });
+
+    // Enforce plan limits
+    if (role === 'patient') {
+      const check = await canAddPatient(tenantId);
+      if (!check.allowed) return res.status(403).json({ success: false, message: check.message });
+    } else if (['admin', 'superadmin'].includes(role)) {
+      const check = await canAddStaff(tenantId);
+      if (!check.allowed) return res.status(403).json({ success: false, message: check.message });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const rawVerifyToken = crypto.randomBytes(32).toString('hex');
@@ -92,6 +108,11 @@ const fetchAllUsers = async (req, res) => {
 const fetchUsersByTenant = async (req, res) => {
   try {
     const tenantId = req.params.id;
+
+    if (req.user.role !== 'dev' && req.user.tenantId?.toString() !== tenantId) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
     const { search } = req.query;
 
     const query = { tenantId };
@@ -143,7 +164,25 @@ const tenantLogin = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid email or password' });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    if (!user.isActive) {
+      return res.status(403).json({
+        message: 'Your account has been deactivated. Please contact your clinic.',
+        code: 'ACCOUNT_DEACTIVATED',
+      });
+    }
+
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        message: 'Your account is not yet verified. Please verify your email or ask clinic staff to verify your account.',
+        code: 'EMAIL_NOT_VERIFIED',
+      });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role, tenantId: user.tenantId },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
 
     await TenantActivityLogs.create({
       tenantId:     user.tenantId,
@@ -171,9 +210,29 @@ const fetchUser = async (req, res) => {
 
 const updateUserTenant = async (req, res) => {
   try {
-    const { tenantId, pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    const { pin, email, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
 
-    const update = { tenantId, pin, email, firstName, middleName, lastName, birthday, phone, role };
+    const target = await UserTenant.findById(req.params.id).select('tenantId role').lean();
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    if (req.user.role !== 'dev' && target.tenantId?.toString() !== req.user.tenantId?.toString()) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    // Prevent privilege escalation — enforce role transition rules
+    let safeRole = target.role;
+    if (role !== undefined) {
+      const caller = req.user.role;
+      if (caller === 'dev') {
+        safeRole = role;
+      } else if (caller === 'superadmin' && ['patient', 'admin', 'superadmin'].includes(role)) {
+        safeRole = role;
+      } else if (caller === 'admin' && role === 'patient') {
+        safeRole = role;
+      }
+    }
+
+    const update = { pin, email, firstName, middleName, lastName, birthday, phone, role: safeRole };
     if (password) update.password = await bcrypt.hash(password, 10);
 
     const updated = await UserTenant.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true }).select('-password');
@@ -379,6 +438,10 @@ const toggleUserStatus = async (req, res) => {
     const user = await UserTenant.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    if (req.user.role !== 'dev' && user.tenantId?.toString() !== req.user.tenantId?.toString()) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
     user.isActive = !user.isActive;
     await user.save();
 
@@ -394,6 +457,10 @@ const toggleUserStatus = async (req, res) => {
 
 const fetchTenantActivityLogs = async (req, res) => {
   try {
+    if (req.user.role !== 'dev' && req.user.tenantId?.toString() !== req.params.id) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
     const logs = await TenantActivityLogs.find({ tenantId: req.params.id })
@@ -405,6 +472,140 @@ const fetchTenantActivityLogs = async (req, res) => {
     res.status(200).json({ success: true, data: logs });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch activity logs' });
+  }
+};
+
+/**
+ * PDPA — Export all personal data for a patient.
+ * GET /api/auth-tenant/:id/export
+ * Accessible by: the patient themselves OR admin/superadmin of the same tenant.
+ */
+const exportPatientData = async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const requester = req.user;
+
+    const target = await UserTenant.findById(targetId)
+      .select('-password -resetToken -resetTokenExpiry -verificationToken -verificationTokenExpiry')
+      .lean();
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    const isSelf  = String(requester.id) === String(targetId);
+    const isAdmin = ['admin', 'superadmin', 'dev'].includes(requester.role) &&
+                    String(requester.tenantId) === String(target.tenantId);
+
+    if (!isSelf && !isAdmin) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const conversation = await Conversation.findOne({ patientId: targetId }).select('_id').lean();
+    const [appointments, messages] = await Promise.all([
+      Appointment.find({ patientId: targetId })
+        .select('-tenantId -__v')
+        .sort({ createdAt: -1 })
+        .lean(),
+      conversation
+        ? Message.find({ conversationId: conversation._id }).select('-__v').lean()
+        : Promise.resolve([]),
+    ]);
+
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      notice: 'This export was generated in compliance with the Philippine Data Privacy Act (PDPA / RA 10173).',
+      profile: target,
+      appointments,
+      messages,
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename="patient-data-${targetId}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    return res.json(exportPayload);
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * PDPA — Anonymize all personal data for a patient (right to erasure).
+ * DELETE /api/auth-tenant/:id/data
+ * Accessible by: the patient themselves OR admin/superadmin of the same tenant.
+ * Record is preserved for referential integrity; all PII is overwritten.
+ */
+const anonymizePatientData = async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const requester = req.user;
+
+    const target = await UserTenant.findById(targetId);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    const isSelf  = String(requester.id) === String(targetId);
+    const isAdmin = ['admin', 'superadmin', 'dev'].includes(requester.role) &&
+                    String(requester.tenantId) === String(target.tenantId);
+
+    if (!isSelf && !isAdmin) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const stub = `deleted_${targetId}`;
+    target.firstName  = 'Deleted';
+    target.lastName   = 'User';
+    target.middleName = '';
+    target.email      = `${stub}@anonymized.invalid`;
+    target.phone      = '';
+    target.birthday   = '';
+    target.pin        = '';
+    target.profilePhoto = { url: '', publicId: '' };
+    target.isActive   = false;
+    target.isEmailVerified = false;
+    await target.save();
+
+    // Anonymize conversation references
+    await Conversation.updateMany(
+      { patientId: targetId },
+      { $set: { patientName: 'Deleted User', patientEmail: `${stub}@anonymized.invalid` } }
+    );
+
+    return res.json({
+      success: true,
+      message: 'All personal data has been anonymized in compliance with the Philippine Data Privacy Act (PDPA).',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * Dual Verification — Path A: Clinic-managed verification.
+ * Used when a patient has no personal email — clinic staff verifies identity in person.
+ * PATCH /api/auth-tenant/:id/clinic-verify
+ * Accessible by: admin, superadmin, dev of the same tenant.
+ */
+const clinicVerifyPatient = async (req, res) => {
+  try {
+    const target = await UserTenant.findById(req.params.id);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    if (req.user.role !== 'dev' && target.tenantId?.toString() !== req.user.tenantId?.toString()) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    if (target.role !== 'patient') {
+      return res.status(400).json({ message: 'Only patient accounts can be clinic-verified.' });
+    }
+
+    target.isEmailVerified = true;
+    target.verificationMethod = 'clinic';
+    target.verificationToken = null;
+    target.verificationTokenExpiry = null;
+    await target.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Patient account verified by clinic staff.',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -424,4 +625,7 @@ module.exports = {
   resendVerification,
   toggleUserStatus,
   fetchTenantActivityLogs,
+  exportPatientData,
+  anonymizePatientData,
+  clinicVerifyPatient,
 };

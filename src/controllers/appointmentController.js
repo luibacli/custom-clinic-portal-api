@@ -1,5 +1,70 @@
 const Appointment = require('../models/Appointment');
 const UserTenant = require('../models/UserTenant');
+const Tenant = require('../models/Tenant');
+const sendEmail = require('../utils/sendEmail');
+
+const FRONTEND_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173';
+
+const apptEmailHtml = ({ heading, subheading, body, patientName, clinicName }) => `
+  <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;border:1px solid #e2e8f0;border-radius:16px;">
+    <h2 style="margin:0 0 4px;color:#1e293b;">${heading}</h2>
+    <p style="margin:0 0 16px;font-size:13px;color:#64748b;">${subheading}</p>
+    <div style="background:#f8fafc;border-radius:12px;padding:16px 20px;margin-bottom:20px;">${body}</div>
+    <p style="font-size:12px;color:#94a3b8;margin:0;">This message was sent by <strong>${clinicName}</strong> via My Clinic Access.</p>
+  </div>
+`;
+
+const sendApptNotification = (patient, appointment, clinicName, statusType) => {
+  if (!patient?.email || patient.email.includes('@anonymized.invalid')) return;
+
+  const date = new Date(appointment.appointmentDate).toLocaleDateString('en-PH', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const name = patient.firstName || 'Patient';
+
+  const templates = {
+    confirmed: {
+      subject: `Appointment Confirmed — ${clinicName}`,
+      heading: 'Your appointment is confirmed!',
+      subheading: `Hi ${name}, great news — your appointment has been approved.`,
+      body: `<p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Service:</strong> ${appointment.serviceType}</p>
+             <p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Date:</strong> ${date}</p>
+             <p style="margin:0;font-size:13px;color:#64748b;">Please arrive on time. You'll be given a queue number when you arrive at the clinic.</p>`,
+    },
+    'in-queue': {
+      subject: `You're in the queue — ${clinicName}`,
+      heading: `You're in Queue #${appointment.queueNumber ?? '—'}!`,
+      subheading: `Hi ${name}, you have been checked in and assigned a queue number.`,
+      body: `<p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Queue Number:</strong> #${appointment.queueNumber ?? '—'}</p>
+             <p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Service:</strong> ${appointment.serviceType}</p>
+             <p style="margin:0;font-size:13px;color:#64748b;">Please wait for your name to be called. You can track your queue position in the patient portal.</p>`,
+    },
+    completed: {
+      subject: `Visit complete — thank you, ${clinicName}`,
+      heading: 'Your visit is complete',
+      subheading: `Hi ${name}, your appointment has been marked as completed.`,
+      body: `<p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Service:</strong> ${appointment.serviceType}</p>
+             <p style="margin:0;font-size:13px;color:#64748b;">Thank you for visiting ${clinicName}. Book your next appointment anytime through the patient portal.</p>`,
+    },
+    cancelled: {
+      subject: `Appointment cancelled — ${clinicName}`,
+      heading: 'Your appointment has been cancelled',
+      subheading: `Hi ${name}, your appointment has been cancelled.`,
+      body: `<p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Service:</strong> ${appointment.serviceType}</p>
+             <p style="margin:0 0 8px;font-size:14px;color:#334155;"><strong>Date:</strong> ${date}</p>
+             ${appointment.cancelReason ? `<p style="margin:0;font-size:13px;color:#64748b;"><strong>Reason:</strong> ${appointment.cancelReason}</p>` : ''}`,
+    },
+  };
+
+  const t = templates[statusType];
+  if (!t) return;
+
+  sendEmail({
+    to: patient.email,
+    subject: t.subject,
+    html: apptEmailHtml({ ...t, patientName: name, clinicName }),
+  }).catch(() => {});
+};
 
 const createAppointment = async (req, res) => {
   try {
@@ -133,6 +198,16 @@ const manageAppointment = async (req, res) => {
       if (io) io.to(`patient:${appointment.patientId}`).emit('appointment:ongoing', { queueNumber: appointment.queueNumber });
     }
 
+    // Email notification on key status transitions
+    const notifyStatuses = ['confirmed', 'in-queue', 'completed'];
+    if (update.status && notifyStatuses.includes(update.status) && update.status !== existing.status) {
+      const [patient, tenant] = await Promise.all([
+        UserTenant.findById(appointment.patientId).select('email firstName').lean(),
+        Tenant.findById(appointment.tenantId).select('name').lean(),
+      ]);
+      sendApptNotification(patient, appointment, tenant?.name || 'Your Clinic', update.status);
+    }
+
     res.json({ success: true, data: appointment });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -155,6 +230,14 @@ const cancelAppointment = async (req, res) => {
     ).lean();
 
     if (!appointment) return res.status(404).json({ success: false, message: 'Appointment not found' });
+
+    // Email notification on cancellation
+    const [patient, tenant] = await Promise.all([
+      UserTenant.findById(appointment.patientId).select('email firstName').lean(),
+      Tenant.findById(appointment.tenantId).select('name').lean(),
+    ]);
+    sendApptNotification(patient, { ...appointment, cancelReason: cancelReason || '' }, tenant?.name || 'Your Clinic', 'cancelled');
+
     res.json({ success: true, data: appointment });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

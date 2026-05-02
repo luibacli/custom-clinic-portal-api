@@ -52,12 +52,17 @@ const receiveEmail = async (req, res) => {
 
 const fetchInbox = async (req, res) => {
   try {
-    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const skip  = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-    const domainRegex = await getCallerDomainRegex(req.user?.tenantId);
-    const filter = domainRegex ? { to: domainRegex } : {};
+    const emailAddress = req.user.email?.trim().toLowerCase();
+
+    if (!emailAddress) {
+      return res.status(400).json({ message: 'User email missing' });
+    }
+
+    const filter = { to: emailAddress };
 
     const [total, emails] = await Promise.all([
       InboundEmail.countDocuments(filter),
@@ -66,11 +71,21 @@ const fetchInbox = async (req, res) => {
         .skip(skip)
         .limit(limit)
         .select('-raw')
-        .lean(),
+        .lean()
     ]);
 
-    if (!emails.length) return res.status(404).json({ message: 'No messages found' });
-    res.status(200).json({ success: true, data: emails, total, page, pages: Math.ceil(total / limit) });
+    if (!emails.length) {
+      return res.status(404).json({ message: 'No messages found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: emails,
+      total,
+      page,
+      pages: Math.ceil(total / limit)
+    });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -142,16 +157,22 @@ const fetchEmailById = async (req, res) => {
 
 const fetchEmailsByAddress = async (req, res) => {
   try {
-    const domainRegex = await getCallerDomainRegex(req.user?.tenantId);
-    if (domainRegex && !domainRegex.test(req.params.to)) {
-      return res.status(403).json({ message: 'Forbidden' });
+    const emailAddress = req.params.to.trim().toLowerCase();
+
+    const emails = await InboundEmail.find({
+      to: emailAddress
+    }).sort({ date: -1 });
+
+    if (!emails.length) {
+      return res.status(404).json({ message: 'Emails not found' });
     }
 
-    const emails = await InboundEmail.find({ to: req.params.to });
-    if (!emails.length) return res.status(404).json({ message: 'Emails not found' });
     res.status(200).json(emails);
   } catch (error) {
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    res.status(500).json({
+      message: 'Internal Server Error',
+      error: error.message
+    });
   }
 };
 

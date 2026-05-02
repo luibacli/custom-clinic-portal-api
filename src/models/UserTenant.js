@@ -2,9 +2,17 @@ const mongoose = require('mongoose');
 
 const UserTenantSchema = new mongoose.Schema({
   tenantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant' },
+  username: {
+    type: String,
+    unique: true,
+  },
   email: {
     type: String,
     required: true,
+    unique: true,
+  },
+  otherEmail: {
+    type: String,
     unique: true,
   },
   pin:        { type: String },
@@ -28,7 +36,7 @@ const UserTenantSchema = new mongoose.Schema({
     publicId: { type: String, default: '' },
   },
   isActive:       { type: Boolean, default: true },
-  isEmailVerified:{ type: Boolean, default: false },
+  isEmailVerified:{ type: Boolean, default: true},
   // 'self' = patient clicked email link; 'clinic' = staff verified in person
   verificationMethod: { type: String, enum: ['self', 'clinic'], default: 'self' },
   verificationToken:       { type: String, default: null },

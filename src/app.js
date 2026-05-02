@@ -44,14 +44,25 @@ app.use(pinoHttp({
 // CORS
 app.use(cors(corsOptions));
 
-// Rate limiting — global: 300 req/15 min per IP
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many requests, please try again later.' },
-}));
+
+app.use((req, res, next) => {
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(self), microphone=(self)'
+  );
+  next();
+});
+
+// Rate limiting — global: 300 req/15 min per IP]
+
+
+// app.use(rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 300,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, message: 'Too many requests, please try again later.' },
+// }));
 
 // Body parsers
 app.use(express.json({ limit: '2mb' }));

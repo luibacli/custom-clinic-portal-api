@@ -17,6 +17,7 @@ const tenantSchema = new mongoose.Schema({
     appointments:  { type: Boolean, default: true  },
     qrScan:        { type: Boolean, default: true  },
     mails:         { type: Boolean, default: true  },
+    verifications: { type: Boolean, default: false },
     users:         { type: Boolean, default: true  },
     analytics:     { type: Boolean, default: false },
     exportReports: { type: Boolean, default: false },

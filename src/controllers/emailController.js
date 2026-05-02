@@ -144,10 +144,6 @@ const fetchEmailById = async (req, res) => {
     const email = await InboundEmail.findById(req.params.id);
     if (!email) return res.status(404).json({ message: 'No Email Found' });
 
-    const domainRegex = await getCallerDomainRegex(req.user?.tenantId);
-    if (domainRegex && !domainRegex.test(email.to) && !domainRegex.test(email.from)) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
 
     res.status(200).json(email);
   } catch (error) {
@@ -181,10 +177,6 @@ const updateEmailStatus = async (req, res) => {
     const email = await InboundEmail.findById(req.params.id);
     if (!email) return res.status(404).json({ message: 'Email not found' });
 
-    const domainRegex = await getCallerDomainRegex(req.user?.tenantId);
-    if (domainRegex && !domainRegex.test(email.to) && !domainRegex.test(email.from)) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
 
     const { status } = req.body;
     const updated = await InboundEmail.findByIdAndUpdate(req.params.id, { status }, { new: true });
@@ -199,10 +191,7 @@ const markEmailRead = async (req, res) => {
     const email = await InboundEmail.findById(req.params.id);
     if (!email) return res.status(404).json({ message: 'Email not found' });
 
-    const domainRegex = await getCallerDomainRegex(req.user?.tenantId);
-    if (domainRegex && !domainRegex.test(email.to) && !domainRegex.test(email.from)) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
+
 
     email.isRead = true;
     await email.save();

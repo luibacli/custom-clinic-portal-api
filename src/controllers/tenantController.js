@@ -272,7 +272,7 @@ const updateTenantBranding = async (req, res) => {
   }
 };
 
-const ALLOWED_FEATURES = ['messaging', 'appointments', 'qrScan', 'mails', 'users', 'analytics', 'exportReports', 'smsReminders'];
+const ALLOWED_FEATURES = ['messaging', 'appointments', 'qrScan', 'mails', 'verifications', 'users', 'analytics', 'exportReports', 'smsReminders'];
 
 const updateTenantFeatures = async (req, res) => {
   try {

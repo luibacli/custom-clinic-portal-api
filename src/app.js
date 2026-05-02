@@ -53,14 +53,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate limiting — global: 300 req/15 min per IP
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many requests, please try again later.' },
-}));
+// Rate limiting — global: 300 req/15 min per IP]
+
+
+// app.use(rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 300,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, message: 'Too many requests, please try again later.' },
+// }));
 
 // Body parsers
 app.use(express.json({ limit: '2mb' }));

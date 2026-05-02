@@ -4,11 +4,13 @@ const auth = require('../middleware/auth');
 const uploadCloudinary = require('../middleware/uploadCloudinary');
 const {
   createUserTenant,
+  createDevUser,
   fetchAllUsers,
   fetchUsersByTenant,
   tenantLogin,
   fetchUser,
   updateUserTenant,
+  updateDevUser,
   uploadUserPhoto,
   deleteUserTenant,
   changePassword,
@@ -25,6 +27,7 @@ const {
 
 router.post('/login',               tenantLogin);
 router.post('/create',              auth(['dev', 'admin', 'superadmin']), createUserTenant);
+router.post('/create-dev',          auth(['dev']),                        createDevUser);
 router.post('/forgot-password',     forgotPassword);
 router.post('/reset-password',      resetPassword);
 router.post('/resend-verification', resendVerification);
@@ -34,6 +37,7 @@ router.get('/users/all',            auth(['dev']),                        fetchA
 router.get('/:id/users',            auth(['dev', 'admin', 'superadmin']), fetchUsersByTenant);
 router.get('/:id/activity-logs',    auth(['dev', 'superadmin']),          fetchTenantActivityLogs);
 router.put('/:id/user/update',      auth(['dev', 'admin', 'superadmin']), updateUserTenant);
+router.put('/:id/user/update-dev',  auth(['dev']),                        updateDevUser);
 router.patch('/change-password',    auth(),                               changePassword);
 router.patch('/:id/photo',          auth(),                               uploadCloudinary.single('image'), uploadUserPhoto);
 router.patch('/:id/toggle-status',  auth(['dev', 'admin', 'superadmin']), toggleUserStatus);

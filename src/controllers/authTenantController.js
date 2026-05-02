@@ -73,6 +73,43 @@ const createUserTenant = async (req, res) => {
   }
 };
 
+
+const createDevUser = async (req, res) => {
+  try {
+    const { username, email, otherEmail, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+    // Non-dev callers are always scoped to their own tenant
+
+
+    const existingUser = await UserTenant.findOne({ email });
+    if (existingUser) return res.status(400).json({ message: 'Email Already Exists' });
+
+    const existingUsername = await UserTenant.findOne({ username });
+    if (existingUsername) return res.status(400).json({ message: 'Username Already Exists' });
+
+    if (!password) return res.status(400).json({ message: 'Password is required' });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const rawVerifyToken = crypto.randomBytes(32).toString('hex');
+    const hashedVerifyToken = crypto.createHash('sha256').update(rawVerifyToken).digest('hex');
+
+    const user = await UserTenant.create({
+      username, email, otherEmail, firstName, middleName, lastName, birthday, phone,
+      password: hashedPassword,
+      role,
+      verificationToken: hashedVerifyToken,
+      verificationTokenExpiry: new Date(Date.now() + 48 * 60 * 60 * 1000),
+    });
+
+    const safeUser = user.toObject();
+    delete safeUser.password;
+
+    res.status(201).json({ success: true, data: safeUser, message: 'Dev User Created Successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to create user', error: error.message });
+  }
+};
+
 const fetchAllUsers = async (req, res) => {
   try {
     const { search, role, tenantId } = req.query;
@@ -239,6 +276,25 @@ const updateUserTenant = async (req, res) => {
     if (!updated) return res.status(404).json({ message: 'User not found' });
 
     return res.status(200).json({ success: true, user: updated, message: 'User Updated Successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const updateDevUser = async (req, res) => {
+  try {
+    const { username, email, otherEmail, firstName, middleName, lastName, birthday, phone, password, role } = req.body;
+
+    const target = await UserTenant.findById(req.params.id).lean();
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    const update = { username, email, otherEmail, firstName, middleName, lastName, birthday, phone, role };
+    if (password) update.password = await bcrypt.hash(password, 10);
+
+    const updated = await UserTenant.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true }).select('-password');
+    if (!updated) return res.status(404).json({ message: 'User not found' });
+
+    return res.status(200).json({ success: true, user: updated, message: 'Dev User Updated Successfully' });
   } catch (error) {
     return res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -611,11 +667,13 @@ const clinicVerifyPatient = async (req, res) => {
 
 module.exports = {
   createUserTenant,
+  createDevUser,
   fetchAllUsers,
   fetchUsersByTenant,
   tenantLogin,
   fetchUser,
   updateUserTenant,
+  updateDevUser,
   uploadUserPhoto,
   deleteUserTenant,
   changePassword,
